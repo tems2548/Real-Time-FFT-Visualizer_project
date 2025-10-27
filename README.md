@@ -1,1 +1,237 @@
+# 🎛️ Real-Time FFT Visualizer
 
+A Python-based **real-time frequency analyzer** for ESP32 (or any microcontroller) sending sampled ADC data.  
+It performs **FFT, RMS, THD, and SNR** analysis, displaying multiple live plots — time waveform, spectrum, spectrogram, and frequency tracking.
+
+---
+
+## 🧠 Overview
+
+This project converts **ADC samples → frequency domain** in real time.  
+It helps visualize and measure signal characteristics such as:
+- Fundamental frequency  
+- Harmonics and distortion (THD)  
+- Signal-to-noise ratio (SNR)  
+- RMS voltage  
+- Time–frequency evolution (spectrogram)
+
+---
+
+## ⚙️ System Flow
+
+```
+Analog Signal → ESP32 ADC → Serial → Python (NumPy + Matplotlib)
+          ↓                         ↓
+     Sampling                FFT Analysis
+          ↓                         ↓
+     Voltage Data      →    Spectrum + Metrics
+```
+
+---
+
+## 🧩 Specifications
+
+| Parameter | Symbol | Typical Value | Description |
+|:-----------|:--------|:--------------|:-------------|
+| Sampling frequency | F_s | 18.86 kHz | Sampling rate of ESP32 |
+| Samples per frame | N | 1024 | FFT window size |
+| Frequency resolution | Δf = F_s/N | 18.4 Hz | Bin width |
+| ADC resolution | – | 12-bit (0–4095) | |
+| Voltage reference | V_ref | 3.3 V | ADC reference |
+| Max measurable frequency | f_Nyquist = F_s/2 | 9.43 kHz | |
+
+---
+
+## 🧮 Mathematical Foundations
+
+### 1. ADC to Voltage
+
+V[n] = (ADC[n] / 4095) * V_ref
+
+### 2. DC Removal and Windowing
+
+x[n] = (V[n] - mean(V)) * w[n]  
+w[n] = 0.5 * (1 - cos(2πn/(N-1)))
+
+### 3. Fast Fourier Transform (FFT)
+
+X[k] = Σ x[n] * e^(-j2πkn/N)  
+f_k = k * F_s / N
+
+### 4. Amplitude Spectrum
+
+A[k] = (2/N) * sqrt(Re(X[k])² + Im(X[k])²)  
+Mag_dB[k] = 20 * log10(A[k] + ε)
+
+### 5. Parabolic Frequency Interpolation
+
+δ = 0.5 * (α - γ) / (α - 2β + γ)  
+f_main = (k_max + δ) * F_s / N
+
+### 6. RMS Voltage
+
+V_RMS = sqrt((1/N) * Σ V[n]²)
+
+### 7. Total Harmonic Distortion (THD)
+
+THD = sqrt(A₂² + A₃² + A₄²) / A₁  
+THD(%) = 100 × THD
+
+### 8. Signal-to-Noise Ratio (SNR)
+
+SNR(dB) = 20 * log10(A₁ / A₂)
+
+### 9. Spectrogram (Short-Time FFT)
+
+S[k,i] = 20 * log10((2/N) * |X_i[k]|)
+
+---
+
+## 🧰 Implementation Outline
+
+```python
+import serial
+import numpy as np
+import matplotlib.pyplot as plt
+from collections import deque
+
+PORT = "/dev/ttyACM0"
+BAUD = 1000000
+N = 1024
+FS = 18860.0
+HEADER = b'\xCD\xAB'
+VREF = 3.3
+```
+
+---
+
+## 📊 Visualization
+
+| Plot | X-axis | Y-axis | Description |
+|------|---------|---------|--------------|
+| Time Domain | Time (s) | Voltage (V) | Raw signal waveform |
+| FFT Spectrum | Frequency (Hz) | Magnitude (dB) | Amplitude vs frequency |
+| Spectrogram | Frame index | Frequency (Hz) | Time–frequency heatmap |
+| Frequency Tracking | Frame index | Frequency (Hz) | Fundamental over time |
+| Text Panel | – | – | Shows RMS, THD, SNR |
+
+---
+
+## 📏 Example Results
+
+| Metric | Symbol | Example Value |
+|:--|:--|:--|
+| RMS Voltage | V_RMS | 0.707 V |
+| Fundamental Frequency | f₁ | 1000 Hz |
+| 2nd Harmonic | f₂ | 2000 Hz |
+| 3rd Harmonic | f₃ | 3000 Hz |
+| THD | – | 0.45% |
+| SNR | – | 54.2 dB |
+
+---
+
+## 🧪 Example Test Signal
+
+Input:  
+- 1 kHz sine @ 1 V  
+- 3.5 kHz sine @ 0.5 V  
+
+Expected FFT:  
+- Peak near 1 kHz (fundamental)  
+- Smaller peak near 3.5 kHz (harmonic)  
+- THD ≈ 0.5–1%
+
+---
+
+## 🧠 Theory Summary
+
+| Concept | Equation | Description |
+|:--|:--|:--|
+| DFT | X[k]=Σx[n]e^(-j2πkn/N) | Converts time → frequency |
+| Frequency bin | f_k = kF_s/N | Maps FFT index to frequency |
+| RMS | sqrt((1/N)ΣV[n]²) | Mean power |
+| THD | sqrt(ΣA_h²)/A₁ | Harmonic distortion |
+| SNR | 20log10(A₁/A₂) | Noise ratio |
+| Resolution | Δf = F_s/N | Frequency bin spacing |
+
+---
+
+## 🔧 Dependencies
+
+```bash
+pip install numpy matplotlib pyserial psutil
+```
+
+---
+
+## 🚀 How to Run
+
+1. Connect ESP32 (or any board sending 1024 ADC samples with header 0xCDAB)  
+2. Adjust PORT and BAUD in the script  
+3. Run:
+```bash
+python fft_visualizer.py
+```
+
+---
+
+## 🧰 Future Improvements
+
+- Add amplitude calibration for Hanning window  
+- Add noise floor averaging for more accurate SNR  
+- Support multiple input channels (stereo FFT)  
+- Add waterfall 3D plot (matplotlib or pyqtgraph)
+
+---
+
+## 🧠 Arduino Data Acquisition
+
+### Overview
+The ESP32 continuously samples analog input from **ADC1 Channel 3** (`GPIO 39`) at a variable sampling rate determined by the loop execution time. Each acquisition cycle collects **N = 1024 samples** and sends them as a binary frame to the Python visualizer over USB.
+
+### ADC Configuration
+- **Resolution:** 12 bits → values from 0–4095  
+- **Voltage Reference (VREF):** 3.3 V  
+- **Input Attenuation:** `ADC_ATTEN_DB_11` (≈ 0–3.6 V range)  
+
+**Voltage conversion equation:**
+\[
+V_{in} = \frac{ADC_{raw}}{4095} \times V_{REF}
+\]
+
+### Sampling Rate Measurement
+Sampling frequency \( F_s \) is computed in real time based on the time it takes to sample 1024 points:
+
+\[
+F_s = \frac{N}{T_{elapsed}} = \frac{N}{(end - start) / 10^6} = \frac{N \times 10^6}{elapsed_{us}}
+\]
+
+This ensures exact FFT frequency scaling, compensating for CPU timing variations.
+
+### Frame Structure (Serial Transmission)
+| Field | Size (bytes) | Description |
+|-------|---------------|-------------|
+| Header | 2 | 0xABCD — used for synchronization |
+| ADC samples | 2048 | 1024 samples × 2 bytes |
+| Sampling frequency | 4 | `float` value of actual Fs |
+
+**Total = 2054 bytes per frame**
+
+### Example Binary Stream Layout
+```
+[CD][AB] [s0_lo][s0_hi] [s1_lo][s1_hi] ... [s1023_lo][s1023_hi] [Fs_byte0]...[Fs_byte3]
+```
+
+### Timing Notes
+- `micros()` used to measure total sampling duration.
+- Wrap-around handled with `0xFFFFFFFFUL` correction.
+- Minimum `elapsed_us` clamped to avoid division by zero.
+- Typical Fs ≈ 18.8 kHz on ESP32-S3/C6 at 240 MHz CPU.
+
+### FFT Scaling Impact
+Accurate \( F_s \) ensures the FFT frequency bins are correct:
+\[
+f_k = \frac{k \cdot F_s}{N}, \quad k = 0, 1, 2, \ldots, \frac{N}{2}
+\]
+
+This value is used by the Python visualizer to label spectrum peaks and compute THD correctly.
