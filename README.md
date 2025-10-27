@@ -44,46 +44,7 @@ Analog Signal → ESP32 ADC → Serial → Python (NumPy + Matplotlib)
 
 ## 🧮 Mathematical Foundations
 
-### 1. ADC to Voltage
-
-V[n] = (ADC[n] / 4095) * V_ref
-
-### 2. DC Removal and Windowing
-
-x[n] = (V[n] - mean(V)) * w[n]  
-w[n] = 0.5 * (1 - cos(2πn/(N-1)))
-
-### 3. Fast Fourier Transform (FFT)
-
-X[k] = Σ x[n] * e^(-j2πkn/N)  
-f_k = k * F_s / N
-
-### 4. Amplitude Spectrum
-
-A[k] = (2/N) * sqrt(Re(X[k])² + Im(X[k])²)  
-Mag_dB[k] = 20 * log10(A[k] + ε)
-
-### 5. Parabolic Frequency Interpolation
-
-δ = 0.5 * (α - γ) / (α - 2β + γ)  
-f_main = (k_max + δ) * F_s / N
-
-### 6. RMS Voltage
-
-V_RMS = sqrt((1/N) * Σ V[n]²)
-
-### 7. Total Harmonic Distortion (THD)
-
-THD = sqrt(A₂² + A₃² + A₄²) / A₁  
-THD(%) = 100 × THD
-
-### 8. Signal-to-Noise Ratio (SNR)
-
-SNR(dB) = 20 * log10(A₁ / A₂)
-
-### 9. Spectrogram (Short-Time FFT)
-
-S[k,i] = 20 * log10((2/N) * |X_i[k]|)
+![App Screenshot](https://cdn.discordapp.com/attachments/816657587986104331/1432323294455136337/image.png?ex=6900a284&is=68ff5104&hm=83bfff234932b5a111a879b5f4fe4393852601254813da17029482d4b1dbe8e4&)
 
 ---
 
