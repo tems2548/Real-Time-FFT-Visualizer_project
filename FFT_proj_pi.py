@@ -16,23 +16,28 @@ TRACK_LEN = 200
 FRAME_SIZE = 2 + N*2
 MIN_FREQ = 5.0
 PEAK_MIN_DB = -40
-EXCLUDE_HZ = 50  # exclude ±50 Hz around main tone when searching secondary
+EXCLUDE_BINS = 5
 
 # ----------------- Serial -----------------
 ser = serial.Serial(PORT, BAUD, timeout=0.05)
 
 # ----------------- Initialize Windows -----------------
 plt.ion()
+
+# Time domain window
 fig_time, ax_time = plt.subplots()
 fig_time.canvas.manager.set_window_title("Time Domain Signal")
 
+# FFT + Text Info window
 fig_fft_text, (ax_fft, ax_text) = plt.subplots(2,1, figsize=(10,8), constrained_layout=True)
 fig_fft_text.canvas.manager.set_window_title("FFT Spectrum + Info")
-ax_text.axis("off")
+ax_text.axis("off")  # hide axes for text
 
+# Spectrogram window
 fig_spec, ax_spec = plt.subplots()
 fig_spec.canvas.manager.set_window_title("Spectrogram")
 
+# Frequency tracking window
 fig_track, ax_track = plt.subplots()
 fig_track.canvas.manager.set_window_title("Frequency Tracking")
 
@@ -41,9 +46,14 @@ spec_history = deque(np.zeros(N//2), maxlen=HISTORY_LEN)
 freq_history = deque([0]*TRACK_LEN, maxlen=TRACK_LEN)
 time_history = deque(np.linspace(-TRACK_LEN, 0, TRACK_LEN), maxlen=TRACK_LEN)
 
+prev_time = time.time()
+frame_count = 0
+fps_display = 0
+
 # ----------------- Helper Functions -----------------
 def smooth(data, w=5):
-    if len(data) < w: return data
+    if len(data) < w:
+        return data
     return np.convolve(data, np.ones(w)/w, mode='same')
 
 def parabolic_interpolation(mag_db, idx, df):
@@ -52,26 +62,13 @@ def parabolic_interpolation(mag_db, idx, df):
     alpha, beta, gamma = mag_db[idx-1], mag_db[idx], mag_db[idx+1]
     return 0.5 * (alpha - gamma) / (alpha - 2*beta + gamma) * df
 
-def precise_mag(mag_db, idx):
-    """Refine magnitude using parabolic fit around a bin."""
-    if 0 < idx < len(mag_db)-1:
-        alpha, beta, gamma = mag_db[idx-1], mag_db[idx], mag_db[idx+1]
-        return beta - 0.25 * (alpha - gamma) * (alpha - gamma) / (alpha - 2*beta + gamma)
-    return mag_db[idx]
-
 def find_peaks(volt):
     volt = volt - np.mean(volt)
-    window = np.hanning(N)
-    fft_vals = np.fft.rfft(volt * window)
-    mag = np.abs(fft_vals) * 2 / (np.sum(window)/2)
+    fft_vals = np.fft.rfft(volt * np.hanning(N))
+    mag = np.abs(fft_vals) * 2 / N
     mag_db = 20 * np.log10(mag + 1e-12)
     freq_axis = np.fft.rfftfreq(N, 1/FS)
 
-    # Noise floor suppression
-    noise_floor = np.percentile(mag, 90) * 1.5
-    mag_db[mag < noise_floor] = -120
-
-    # Detect main peak
     mask = freq_axis > MIN_FREQ
     mag_db_valid = mag_db[mask]
     mag_valid = mag[mask]
@@ -82,34 +79,24 @@ def find_peaks(volt):
     main_freq = freq_axis_valid[main_idx] + parabolic_interpolation(mag_db_valid, main_idx, df)
     main_amp = mag_valid[main_idx]
 
-    # Exclude ±EXCLUDE_HZ around main tone
     mag_copy = mag_db_valid.copy()
-    exclude_bins = int(EXCLUDE_HZ / df)
-    start, end = max(main_idx - exclude_bins, 0), min(main_idx + exclude_bins + 1, len(mag_copy))
+    start, end = max(main_idx - EXCLUDE_BINS, 0), min(main_idx + EXCLUDE_BINS + 1, len(mag_copy))
     mag_copy[start:end] = -np.inf
 
-    # Find secondary peaks
     secondary_peaks = []
     for i in range(1, len(mag_copy)-1):
         if mag_copy[i] > PEAK_MIN_DB and mag_copy[i] > mag_copy[i-1] and mag_copy[i] > mag_copy[i+1]:
             secondary_peaks.append((freq_axis_valid[i], mag_valid[i]))
 
-    # RMS and THD
     rms = np.sqrt(np.mean(volt**2))
     harmonic_mags = []
     for h in [2,3,4]:
         target = h * main_freq
         if target < FS/2:
             idx = np.argmin(np.abs(freq_axis_valid - target))
-            harm_mag_db = precise_mag(mag_db_valid, idx)
-            harm_amp = 10**(harm_mag_db/20)
-            harmonic_mags.append(harm_amp)
+            harmonic_mags.append(mag_valid[idx])
     thd = np.sqrt(np.sum(np.array(harmonic_mags)**2)) / main_amp if harmonic_mags else 0.0
-
-    # SNR (main vs next strongest)
-    snr_db = np.nan
-    if secondary_peaks:
-        snr_db = 20*np.log10(main_amp/(secondary_peaks[0][1]+1e-12))
+    snr_db = 20*np.log10(main_amp/(secondary_peaks[0][1]+1e-12)) if secondary_peaks else np.nan
 
     return freq_axis, mag_db, main_freq, main_amp, secondary_peaks, rms, thd, snr_db
 
@@ -145,31 +132,29 @@ while True:
         ax_fft.set_xlabel("Frequency [Hz]")
         ax_fft.set_ylabel("Magnitude [dB]")
         ax_fft.grid(True)
-        fig_fft_text.canvas.draw_idle()
 
-        # --- Text Info Panel ---
+        # --- Text Info Panel (Enhanced Visualization) ---
         ax_text.cla()
         ax_text.axis("off")
         bg = plt.Rectangle((0,0),1,1, transform=ax_text.transAxes, color='lightyellow', alpha=0.5)
         ax_text.add_patch(bg)
 
         thd_color = 'red' if thd*100 > 5 else 'darkgreen'
-        snr_color = 'orange' if (not np.isnan(snr_db) and snr_db < 20) else 'darkgreen'
+        snr_color = 'orange' if snr_db < 20 else 'darkgreen'
 
         lines = [
             ("Main Frequency", f"{main_freq:.2f} Hz", 'darkblue'),
             ("Amplitude", f"{main_amp:.4f} V", 'darkblue'),
             ("RMS", f"{rms:.4f} V", 'darkblue'),
             ("THD", f"{thd*100:.2f} %", thd_color),
-            ("SNR", f"{snr_db:.2f} dB" if not np.isnan(snr_db) else "N/A", snr_color)
+            ("SNR", f"{snr_db:.2f} dB", snr_color)
         ]
 
         for i,(f,a) in enumerate(secondary_peaks):
             lines.append((f"Secondary {i+1}", f"{f:.2f} Hz | {a:.4f} V", 'darkorange'))
 
         for i, (label, value, color) in enumerate(lines):
-            ax_text.text(0.05, 0.95 - 0.12*i, f"{label}: {value}",
-                         fontsize=12, family='monospace', color=color, va='top')
+            ax_text.text(0.05, 0.95 - 0.12*i, f"{label}: {value}", fontsize=12, family='monospace', color=color, va='top')
 
         fig_fft_text.canvas.draw_idle()
 
