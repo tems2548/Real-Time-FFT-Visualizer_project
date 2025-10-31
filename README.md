@@ -73,7 +73,7 @@ VREF = 3.3
 | FFT Spectrum | Frequency (Hz) | Magnitude (dB) | Amplitude vs frequency |
 | Spectrogram | Frame index | Frequency (Hz) | Time–frequency heatmap |
 | Frequency Tracking | Frame index | Frequency (Hz) | Fundamental over time |
-| Text Panel | – | – | Shows RMS, THD, SNR |
+| Text Panel | – | – | Shows RMS, SNR |
 
 ---
 
@@ -85,7 +85,6 @@ VREF = 3.3
 | Fundamental Frequency | f₁ | 1000 Hz |
 | 2nd Harmonic | f₂ | 2000 Hz |
 | 3rd Harmonic | f₃ | 3000 Hz |
-| THD | – | 0.45% |
 | SNR | – | 54.2 dB |
 
 ---
