@@ -1,8 +1,10 @@
 import serial
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.widgets import Button
 from collections import deque
 import time
+import csv
 
 # ----------------- Settings -----------------
 PORT = "/dev/ttyACM0"
@@ -11,9 +13,9 @@ N = 1024
 HEADER = b'\xCD\xAB'
 VREF = 3.3
 FS = 18860.0
-HISTORY_LEN = 100
-TRACK_LEN = 200
-FRAME_SIZE = 2 + N*2
+HISTORY_LEN = 80
+TRACK_LEN = 150
+FRAME_SIZE = 2 + N * 2
 MIN_FREQ = 5.0
 PEAK_MIN_DB = -40
 EXCLUDE_BINS = 5
@@ -21,25 +23,44 @@ EXCLUDE_BINS = 5
 # ----------------- Serial -----------------
 ser = serial.Serial(PORT, BAUD, timeout=0.05)
 
-# ----------------- Initialize Windows -----------------
+# ----------------- Initialize Figures -----------------
 plt.ion()
+fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+fig.canvas.manager.set_window_title("Real-Time FFT Analyzer with CSV Save")
 
-# Time domain window
-fig_time, ax_time = plt.subplots()
-fig_time.canvas.manager.set_window_title("Time Domain Signal")
+ax_time, ax_fft, ax_spec, ax_track = axs.flatten()
 
-# FFT + Text Info window
-fig_fft_text, (ax_fft, ax_text) = plt.subplots(2,1, figsize=(10,8), constrained_layout=True)
-fig_fft_text.canvas.manager.set_window_title("FFT Spectrum + Info")
-ax_text.axis("off")  # hide axes for text
+# --- Time domain ---
+time_line, = ax_time.plot([], [], color='black')
+ax_time.set_title("Time Domain")
+ax_time.set_xlabel("Time [s]")
+ax_time.set_ylabel("Voltage [V]")
+ax_time.grid(True)
 
-# Spectrogram window
-fig_spec, ax_spec = plt.subplots()
-fig_spec.canvas.manager.set_window_title("Spectrogram")
+# --- FFT Spectrum ---
+fft_line, = ax_fft.plot([], [], color='purple')
+peak_marker, = ax_fft.plot([], [], 'go', markersize=8)
+sec_peaks_plot, = ax_fft.plot([], [], 'ro', markersize=5)
+ax_fft.set_title("FFT Spectrum")
+ax_fft.set_xlabel("Frequency [Hz]")
+ax_fft.set_ylabel("Magnitude [dB]")
+ax_fft.grid(True)
 
-# Frequency tracking window
-fig_track, ax_track = plt.subplots()
-fig_track.canvas.manager.set_window_title("Frequency Tracking")
+# --- Spectrogram ---
+spec_img = ax_spec.imshow(np.zeros((N//2, HISTORY_LEN)), 
+                          aspect='auto', origin='lower',
+                          extent=[0, HISTORY_LEN, 0, FS/2],
+                          cmap='inferno', vmin=-100, vmax=0)
+ax_spec.set_title("Spectrogram")
+ax_spec.set_xlabel("Frame Index")
+ax_spec.set_ylabel("Frequency [Hz]")
+
+# --- Frequency Tracking ---
+track_line, = ax_track.plot([], [], color='teal')
+ax_track.set_title("Main Frequency Tracking")
+ax_track.set_xlabel("Frame")
+ax_track.set_ylabel("Frequency [Hz]")
+ax_track.grid(True)
 
 # ----------------- Buffers -----------------
 spec_history = deque(np.zeros(N//2), maxlen=HISTORY_LEN)
@@ -64,8 +85,9 @@ def parabolic_interpolation(mag_db, idx, df):
 
 def find_peaks(volt):
     volt = volt - np.mean(volt)
-    fft_vals = np.fft.rfft(volt * np.hanning(N))
-    mag = np.abs(fft_vals) * 2 / N
+    window = np.hanning(N)
+    fft_vals = np.fft.rfft(volt * window)
+    mag = np.abs(fft_vals) * 2 / (N * (np.sum(window)/N))
     mag_db = 20 * np.log10(mag + 1e-12)
     freq_axis = np.fft.rfftfreq(N, 1/FS)
 
@@ -100,7 +122,24 @@ def find_peaks(volt):
 
     return freq_axis, mag_db, main_freq, main_amp, secondary_peaks, rms, thd, snr_db
 
+# ----------------- CSV Save Function -----------------
+def save_to_csv(event):
+    filename = f"fft_snapshot_{int(time.time())}.csv"
+    with open(filename, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Frequency (Hz)", "Magnitude (dB)"])
+        for f_hz, mag_db_val in zip(current_freq_axis, current_mag_db):
+            writer.writerow([f_hz, mag_db_val])
+    print(f"✅ Saved FFT data to {filename}")
+
+# ----------------- Button -----------------
+button_ax = plt.axes([0.83, 0.02, 0.13, 0.05])  # position [left, bottom, width, height]
+save_button = Button(button_ax, '💾 Save CSV', color='lightgray', hovercolor='lightgreen')
+save_button.on_clicked(save_to_csv)
+
 # ----------------- Main Loop -----------------
+current_freq_axis, current_mag_db = np.zeros(N//2+1), np.zeros(N//2+1)
+
 while True:
     try:
         frame = ser.read(FRAME_SIZE)
@@ -111,78 +150,44 @@ while True:
         volt = adc_vals * VREF / 4095.0
 
         freq_axis, mag_db, main_freq, main_amp, secondary_peaks, rms, thd, snr_db = find_peaks(volt)
+        current_freq_axis, current_mag_db = freq_axis, mag_db  # for CSV save
 
-        # --- Time Domain ---
-        ax_time.cla()
-        ax_time.plot(np.arange(N)/FS, volt, color='black')
-        ax_time.set_title("Time Domain")
-        ax_time.set_xlabel("Time [s]")
-        ax_time.set_ylabel("Voltage [V]")
-        ax_time.grid(True)
-        fig_time.canvas.draw_idle()
+        # --- Update plots efficiently ---
+        time_line.set_data(np.arange(N)/FS, volt)
+        ax_time.relim(); ax_time.autoscale_view()
 
-        # --- FFT Spectrum ---
-        ax_fft.cla()
-        ax_fft.plot(freq_axis, mag_db, color='purple')
-        ax_fft.scatter(main_freq, 20*np.log10(main_amp), color='green', s=60, label="Main Peak")
-        for f,a in secondary_peaks:
-            ax_fft.scatter(f, 20*np.log10(a), color='orange', s=50)
-            ax_fft.text(f, 20*np.log10(a)+3, f"{f:.1f}Hz", fontsize=9)
-        ax_fft.set_title("FFT Spectrum")
-        ax_fft.set_xlabel("Frequency [Hz]")
-        ax_fft.set_ylabel("Magnitude [dB]")
-        ax_fft.grid(True)
+        fft_line.set_data(freq_axis, mag_db)
+        peak_marker.set_data([main_freq], [20*np.log10(main_amp)])
+        if secondary_peaks:
+            sec_peaks_plot.set_data([p[0] for p in secondary_peaks],
+                                    [20*np.log10(p[1]) for p in secondary_peaks])
+        else:
+            sec_peaks_plot.set_data([], [])
+        ax_fft.relim(); ax_fft.autoscale_view()
 
-        # --- Text Info Panel (Enhanced Visualization) ---
-        ax_text.cla()
-        ax_text.axis("off")
-        bg = plt.Rectangle((0,0),1,1, transform=ax_text.transAxes, color='lightyellow', alpha=0.5)
-        ax_text.add_patch(bg)
-
-        thd_color = 'red' if thd*100 > 5 else 'darkgreen'
-        snr_color = 'orange' if snr_db < 20 else 'darkgreen'
-
-        lines = [
-            ("Main Frequency", f"{main_freq:.2f} Hz", 'darkblue'),
-            ("Amplitude", f"{main_amp:.4f} V", 'darkblue'),
-            ("RMS", f"{rms:.4f} V", 'darkblue'),
-            ("THD", f"{thd*100:.2f} %", thd_color),
-            ("SNR", f"{snr_db:.2f} dB", snr_color)
-        ]
-
-        for i,(f,a) in enumerate(secondary_peaks):
-            lines.append((f"Secondary {i+1}", f"{f:.2f} Hz | {a:.4f} V", 'darkorange'))
-
-        for i, (label, value, color) in enumerate(lines):
-            ax_text.text(0.05, 0.95 - 0.12*i, f"{label}: {value}", fontsize=12, family='monospace', color=color, va='top')
-
-        fig_fft_text.canvas.draw_idle()
-
-        # --- Spectrogram ---
         spec_history.append(mag_db[:N//2])
         spec_array = np.array(spec_history).T
-        ax_spec.cla()
-        ax_spec.imshow(spec_array, aspect='auto', origin='lower',
-                       extent=[0,HISTORY_LEN,0,FS/2],
-                       cmap='inferno', vmin=-100, vmax=0)
-        ax_spec.set_title("Spectrogram")
-        ax_spec.set_xlabel("Frame Index")
-        ax_spec.set_ylabel("Frequency [Hz]")
-        fig_spec.canvas.draw_idle()
+        spec_img.set_data(spec_array)
+        spec_img.set_clim(np.percentile(spec_array, [5, 95]))  # dynamic color range
 
-        # --- Frequency Tracking ---
         freq_history.append(main_freq)
         time_history.append(time_history[-1]+1)
-        ax_track.cla()
-        ax_track.plot(list(time_history), smooth(freq_history,5), color='teal')
-        ax_track.set_title("Main Frequency Tracking")
-        ax_track.set_xlabel("Frame Index")
-        ax_track.set_ylabel("Frequency [Hz]")
-        ax_track.grid(True)
-        fig_track.canvas.draw_idle()
+        track_line.set_data(time_history, smooth(freq_history,5))
+        ax_track.relim(); ax_track.autoscale_view()
+
+        frame_count += 1
+        now = time.time()
+        if now - prev_time >= 1.0:
+            fps_display = frame_count / (now - prev_time)
+            frame_count = 0
+            prev_time = now
+            fig.suptitle(f"Real-Time FFT Analyzer | Main: {main_freq:.1f} Hz | THD: {thd*100:.2f}% | SNR: {snr_db:.1f} dB | FPS: {fps_display:.1f}")
 
         plt.pause(0.001)
 
+    except KeyboardInterrupt:
+        print("🛑 Exiting...")
+        break
     except Exception as e:
-        print("Frame skipped:", e)
+        print("⚠️ Frame skipped:", e)
         continue
