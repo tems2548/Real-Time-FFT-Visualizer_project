@@ -10,7 +10,6 @@ It performs **FFT, RMS, THD, and SNR** analysis, displaying multiple live plots 
 This project converts **ADC samples → frequency domain** in real time.  
 It helps visualize and measure signal characteristics such as:
 - Fundamental frequency  
-- Harmonics and distortion (THD)  
 - Signal-to-noise ratio (SNR)  
 - RMS voltage  
 - Time–frequency evolution (spectrogram)
@@ -88,32 +87,6 @@ VREF = 3.3
 | 3rd Harmonic | f₃ | 3000 Hz |
 | THD | – | 0.45% |
 | SNR | – | 54.2 dB |
-
----
-
-## 🧪 Example Test Signal
-
-Input:  
-- 1 kHz sine @ 1 V  
-- 3.5 kHz sine @ 0.5 V  
-
-Expected FFT:  
-- Peak near 1 kHz (fundamental)  
-- Smaller peak near 3.5 kHz (harmonic)  
-- THD ≈ 0.5–1%
-
----
-
-## 🧠 Theory Summary
-
-| Concept | Equation | Description |
-|:--|:--|:--|
-| DFT | X[k]=Σx[n]e^(-j2πkn/N) | Converts time → frequency |
-| Frequency bin | f_k = kF_s/N | Maps FFT index to frequency |
-| RMS | sqrt((1/N)ΣV[n]²) | Mean power |
-| THD | sqrt(ΣA_h²)/A₁ | Harmonic distortion |
-| SNR | 20log10(A₁/A₂) | Noise ratio |
-| Resolution | Δf = F_s/N | Frequency bin spacing |
 
 ---
 
