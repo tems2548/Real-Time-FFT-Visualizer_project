@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button
 from collections import deque
+from scipy.signal import butter, filtfilt
 import time
 import csv
 
@@ -26,7 +27,7 @@ ser = serial.Serial(PORT, BAUD, timeout=0.05)
 # ----------------- Figures -----------------
 plt.ion()
 fig, axs = plt.subplots(2, 2, figsize=(12, 8))
-fig.canvas.manager.set_window_title("Real-Time FFT Analyzer with CSV Save")
+fig.canvas.manager.set_window_title("Real-Time FFT Analyzer with CSV Save & Filter Toggle")
 
 ax_time, ax_fft, ax_spec, ax_track = axs.flatten()
 
@@ -63,9 +64,22 @@ ax_track.set_xlabel("Frame")
 ax_track.set_ylabel("Frequency [Hz]")
 ax_track.grid(True)
 
-# --- CSV Save Button ---
-button_ax = plt.axes([0.83, 0.02, 0.13, 0.05])
-save_button = Button(button_ax, '💾 Save CSV', color='lightgray', hovercolor='lightgreen')
+# --- Buttons ---
+button_ax_save = plt.axes([0.83, 0.02, 0.13, 0.05])
+save_button = Button(button_ax_save, '💾 Save CSV', color='lightgray', hovercolor='lightgreen')
+
+button_ax_filter = plt.axes([0.7, 0.02, 0.13, 0.05])
+filter_button = Button(button_ax_filter, '🎚 Toggle Filter', color='lightgray', hovercolor='lightblue')
+
+filter_enabled = True  # default ON
+
+def toggle_filter(event):
+    global filter_enabled
+    filter_enabled = not filter_enabled
+    state = "ON" if filter_enabled else "OFF"
+    print(f"🔧 Band-pass filter: {state}")
+
+filter_button.on_clicked(toggle_filter)
 
 # ----------------- Buffers -----------------
 spec_history = deque(np.zeros(N//2), maxlen=HISTORY_LEN)
@@ -93,8 +107,20 @@ def parabolic_interpolation(mag_db, idx, df):
     alpha, beta, gamma = mag_db[idx-1], mag_db[idx], mag_db[idx+1]
     return 0.5 * (alpha - gamma) / (alpha - 2*beta + gamma) * df
 
+# --- Band-pass Filter ---
+def bandpass_filter(data, fs, lowcut=10, highcut=4500, order=5):
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = min(highcut / nyq, 0.99)
+    b, a = butter(order, [low, high], btype='band')
+    return filtfilt(b, a, data)
+
+# --- FFT & Peaks ---
 def find_peaks(volt):
     volt = volt - np.mean(volt)
+    if filter_enabled:
+        volt = bandpass_filter(volt, FS)  # apply filter dynamically
+
     window = np.hanning(N)
     fft_vals = np.fft.rfft(volt * window)
     mag = np.abs(fft_vals) * 2 / (N * (np.sum(window)/N))
@@ -115,7 +141,7 @@ def find_peaks(volt):
     start, end = max(main_idx - EXCLUDE_BINS, 0), min(main_idx + EXCLUDE_BINS + 1, len(mag_copy))
     mag_copy[start:end] = -np.inf
 
-    # Find the 2nd largest (second main) frequency
+    # second peak
     second_idx = np.argmax(mag_copy)
     second_freq = freq_axis_valid[second_idx]
     second_amp = mag_valid[second_idx]
@@ -178,7 +204,8 @@ while True:
             f"2nd Frequency  : {sec_freq:8.2f} Hz\n"
             f"2nd Amplitude  : {sec_amp:8.4f} V\n"
             f"SNR (est)      : {snr_db:8.2f} dB\n"
-            f"RMS Voltage    : {rms:8.4f} V"
+            f"RMS Voltage    : {rms:8.4f} V\n"
+            f"Filter Enabled : {filter_enabled}"
         )
         fig_info.canvas.draw_idle()
 
