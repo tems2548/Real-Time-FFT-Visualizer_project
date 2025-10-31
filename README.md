@@ -1,7 +1,7 @@
 # 🎛️ Real-Time FFT Visualizer
 
 A Python-based **real-time frequency analyzer** for ESP32 (or any microcontroller) sending sampled ADC data.  
-It performs **FFT, RMS, THD, and SNR** analysis, displaying multiple live plots — time waveform, spectrum, spectrogram, and frequency tracking.
+It performs **FFT, RMS and SNR** analysis, displaying multiple live plots — time waveform, spectrum, spectrogram, and frequency tracking.
 
 ---
 
