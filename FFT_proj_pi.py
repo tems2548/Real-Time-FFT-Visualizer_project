@@ -39,12 +39,13 @@ ax_time.grid(True)
 
 # --- FFT Spectrum ---
 fft_line, = ax_fft.plot([], [], color='purple')
-peak_marker, = ax_fft.plot([], [], 'go', markersize=8)
-sec_peaks_plot, = ax_fft.plot([], [], 'ro', markersize=5)
+peak_marker, = ax_fft.plot([], [], 'go', markersize=8, label="Main Peak")
+sec_peak_marker, = ax_fft.plot([], [], 'ro', markersize=6, label="2nd Peak")
 ax_fft.set_title("FFT Spectrum")
 ax_fft.set_xlabel("Frequency [Hz]")
 ax_fft.set_ylabel("Magnitude [dB]")
 ax_fft.grid(True)
+ax_fft.legend(loc="upper right")
 
 # --- Spectrogram ---
 spec_img = ax_spec.imshow(np.zeros((N//2, HISTORY_LEN)),
@@ -114,17 +115,15 @@ def find_peaks(volt):
     start, end = max(main_idx - EXCLUDE_BINS, 0), min(main_idx + EXCLUDE_BINS + 1, len(mag_copy))
     mag_copy[start:end] = -np.inf
 
-    secondary_peaks = []
-    for i in range(1, len(mag_copy)-1):
-        if mag_copy[i] > PEAK_MIN_DB and mag_copy[i] > mag_copy[i-1] and mag_copy[i] > mag_copy[i+1]:
-            secondary_peaks.append((freq_axis_valid[i], mag_valid[i]))
+    # Find the 2nd largest (second main) frequency
+    second_idx = np.argmax(mag_copy)
+    second_freq = freq_axis_valid[second_idx]
+    second_amp = mag_valid[second_idx]
 
     rms = np.sqrt(np.mean(volt**2))
-    snr_db = np.nan
-    if secondary_peaks:
-        snr_db = 20 * np.log10(main_amp / (secondary_peaks[0][1] + 1e-12))
+    snr_db = 20 * np.log10(main_amp / (second_amp + 1e-12)) if second_amp > 0 else np.nan
 
-    return freq_axis, mag_db, main_freq, main_amp, secondary_peaks, rms, snr_db
+    return freq_axis, mag_db, main_freq, main_amp, second_freq, second_amp, rms, snr_db
 
 # ----------------- CSV Save -----------------
 def save_to_csv(event):
@@ -150,7 +149,7 @@ while True:
         adc_vals = np.frombuffer(frame[2:], dtype=np.uint16)
         volt = adc_vals * VREF / 4095.0
 
-        freq_axis, mag_db, main_freq, main_amp, secondary_peaks, rms, snr_db = find_peaks(volt)
+        freq_axis, mag_db, main_freq, main_amp, sec_freq, sec_amp, rms, snr_db = find_peaks(volt)
         current_freq_axis, current_mag_db = freq_axis, mag_db
 
         # --- Update plots ---
@@ -159,11 +158,7 @@ while True:
 
         fft_line.set_data(freq_axis, mag_db)
         peak_marker.set_data([main_freq], [20*np.log10(main_amp)])
-        if secondary_peaks:
-            sec_peaks_plot.set_data([p[0] for p in secondary_peaks],
-                                    [20*np.log10(p[1]) for p in secondary_peaks])
-        else:
-            sec_peaks_plot.set_data([], [])
+        sec_peak_marker.set_data([sec_freq], [20*np.log10(sec_amp)])
         ax_fft.relim(); ax_fft.autoscale_view()
 
         spec_history.append(mag_db[:N//2])
@@ -177,8 +172,6 @@ while True:
         ax_track.relim(); ax_track.autoscale_view()
 
         # --- Info window update ---
-        sec_freq = secondary_peaks[0][0] if secondary_peaks else 0
-        sec_amp = secondary_peaks[0][1] if secondary_peaks else 0
         info_text.set_text(
             f"Main Frequency : {main_freq:8.2f} Hz\n"
             f"Main Amplitude : {main_amp:8.4f} V\n"
@@ -196,7 +189,7 @@ while True:
             fps_display = frame_count / (now - prev_time)
             frame_count = 0
             prev_time = now
-            fig.suptitle(f"Main: {main_freq:.1f} Hz | SNR: {snr_db:.1f} dB | FPS: {fps_display:.1f}")
+            fig.suptitle(f"Main: {main_freq:.1f} Hz | 2nd: {sec_freq:.1f} Hz | SNR: {snr_db:.1f} dB | FPS: {fps_display:.1f}")
 
         plt.pause(0.001)
 
