@@ -43,7 +43,7 @@ Analog Signal → ESP32 ADC → Serial → Python (NumPy + Matplotlib)
 
 ## 🧮 Mathematical Foundations
 
-![App Screenshot](https://cdn.discordapp.com/attachments/816657587986104331/1433724539531038740/image.png?ex=6905bb87&is=69046a07&hm=12d97c73ccc0638114db001025aa3a6ad6a3b317c9102e10169b982b281eb7a6&)
+![App Screenshot]([https://cdn.discordapp.com/attachments/816657587986104331/1433724539531038740/image.png?ex=6905bb87&is=69046a07&hm=12d97c73ccc0638114db001025aa3a6ad6a3b317c9102e10169b982b281eb7a6&](https://cdn.discordapp.com/attachments/816657587986104331/1433724539531038740/image.png?ex=692f42c7&is=692df147&hm=2e366705e0a739e5c0fe1b89b78e6134ad0daae84e6555de5d91047905bed2b7&))
 
 ---
 
